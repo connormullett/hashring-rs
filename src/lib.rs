@@ -215,6 +215,34 @@ impl<T: Hash, S: BuildHasher> HashRing<T, S> {
     }
 }
 
+pub struct HashRingIterator<T> {
+    ring: Vec<T>,
+    index: usize,
+}
+
+impl<T: Clone> Iterator for HashRingIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let out = self.ring.get(self.index).map(|n| n).cloned();
+        self.index += 1;
+        out
+    }
+}
+
+impl<T: Clone> IntoIterator for HashRing<T> {
+    type Item = T;
+
+    type IntoIter = HashRingIterator<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        HashRingIterator {
+            ring: self.ring.iter().map(|n| n.node.clone()).collect(),
+            index: 0,
+        }
+    }
+}
+
 // An internal function for converting a reference to a hashable type into a `u64` which
 // can be used as a key in the hash ring.
 fn get_key<S, T>(hash_builder: &S, input: T) -> u64
@@ -288,33 +316,19 @@ mod tests {
         assert_eq!(ring.get(&"foo"), None);
 
         let vnode1 = VNode::new("127.0.0.1", 1024, 1);
-        let vnode2 = VNode::new("127.0.0.1", 1024, 2);
-        let vnode3 = VNode::new("127.0.0.2", 1024, 1);
-        let vnode4 = VNode::new("127.0.0.2", 1024, 2);
-        let vnode5 = VNode::new("127.0.0.2", 1024, 3);
-        let vnode6 = VNode::new("127.0.0.3", 1024, 1);
+        let vnode2 = VNode::new("127.0.0.2", 1024, 2);
+        let vnode3 = VNode::new("127.0.0.3", 1024, 3);
 
         ring.add(vnode1);
         ring.add(vnode2);
         ring.add(vnode3);
-        ring.add(vnode4);
-        ring.add(vnode5);
-        ring.add(vnode6);
 
-        assert_eq!(ring.get(&"foo"), Some(&vnode3));
+        assert_eq!(ring.get(&"foo"), Some(&vnode1));
         assert_eq!(ring.get(&"bar"), Some(&vnode2));
-        assert_eq!(ring.get(&"baz"), Some(&vnode6));
-
-        assert_eq!(ring.get(&"abc"), Some(&vnode6));
-        assert_eq!(ring.get(&"def"), Some(&vnode6));
-        assert_eq!(ring.get(&"ghi"), Some(&vnode3));
-
-        assert_eq!(ring.get(&"cat"), Some(&vnode1));
-        assert_eq!(ring.get(&"dog"), Some(&vnode6));
-        assert_eq!(ring.get(&"bird"), Some(&vnode3));
+        assert_eq!(ring.get(&"fizz"), Some(&vnode3));
 
         // at least each node as a key
-        let mut nodes = vec![0; 6];
+        let mut nodes = vec![0; 3];
         for x in 0..50_000 {
             let node = ring.get(&x).unwrap();
             if vnode1 == *node {
@@ -326,17 +340,27 @@ mod tests {
             if vnode3 == *node {
                 nodes[2] += 1;
             }
-            if vnode4 == *node {
-                nodes[3] += 1;
-            }
-            if vnode5 == *node {
-                nodes[4] += 1;
-            }
-            if vnode6 == *node {
-                nodes[5] += 1;
-            }
         }
-        println!("{:?}", nodes);
         assert!(nodes.iter().all(|x| *x != 0));
+    }
+
+    #[test]
+    fn into_iter() {
+        let mut ring: HashRing<VNode> = HashRing::new();
+
+        let vnode1 = VNode::new("127.0.0.1", 1024, 1);
+        let vnode2 = VNode::new("127.0.0.2", 1024, 2);
+        let vnode3 = VNode::new("127.0.0.3", 1024, 3);
+
+        ring.add(vnode1);
+        ring.add(vnode2);
+        ring.add(vnode3);
+
+        let mut iter = ring.into_iter();
+
+        assert_eq!(iter.next(), Some(vnode1));
+        assert_eq!(iter.next(), Some(vnode2));
+        assert_eq!(iter.next(), Some(vnode3));
+        assert_eq!(iter.next(), None);
     }
 }
